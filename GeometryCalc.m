@@ -11,11 +11,17 @@ function GeometryCalc
     leftLayout = uigridlayout(leftPanel, [11, 1]); 
     leftLayout.RowHeight = {30, 30, 30, 30, 30, 30, 'fit', 'fit', 25, '1x', 30};
 
-    % a) Theme
-    themeGrid = uigridlayout(leftLayout, [1, 2]);
-    themeGrid.ColumnWidth = {'fit', 'fit'}; themeGrid.Padding = [0 0 0 0];
-    lblTheme = uilabel(themeGrid, 'Text', 'Dark Mode:', 'FontWeight', 'bold');
-    swTheme = uiswitch(themeGrid, 'Items', {'Off', 'On'}, 'ValueChangedFcn', @toggleTheme);
+    switchGrid = uigridlayout(leftLayout, [1, 5]);
+    switchGrid.ColumnWidth = {'fit', 'fit', '1x', 'fit', 'fit'}; 
+    switchGrid.Padding = [0 0 0 0];
+
+    lblTheme = uilabel(switchGrid, 'Text', 'Dark:', 'FontWeight', 'bold');
+    swTheme = uiswitch(switchGrid, 'Items', {'Off', 'On'}, 'ValueChangedFcn', @toggleTheme);
+
+    lblHold = uilabel(switchGrid, 'Text', 'Hold:', 'FontWeight', 'bold');
+    lblHold.Layout.Column = 4;
+    swHold = uiswitch(switchGrid, 'Items', {'Off', 'On'});
+    swHold.Layout.Column = 5;
 
     % b) Selectors
     lblDim = uilabel(leftLayout, 'Text', 'Dimension:', 'FontWeight', 'bold');
@@ -93,7 +99,7 @@ function GeometryCalc
         rightPanel.BackgroundColor = colors.panel; rightPanel.ForegroundColor = colors.text;
         inputPanel.BackgroundColor = colors.panel; inputPanel.ForegroundColor = colors.text;
 
-        labels = [lblTheme, lblDim, lblShape, lblMethod, lblEqTitle, lblStatus];
+        labels = [lblTheme, lblHold, lblDim, lblShape, lblMethod, lblEqTitle, lblStatus];
         for k = 1:length(labels), labels(k).FontColor = colors.text; end
         for k = 1:4, inputs(k).lbl.FontColor = colors.text; end
 
@@ -147,7 +153,7 @@ function GeometryCalc
             inputs(k).field.Visible='off'; 
         end
         
-        shape = ddShape.Value; method = ddMethod.Value; 
+        shape = ddShape.Value; method = ddMethod.Value; latexStr = '';
 
         switch shape
             % 2D
@@ -195,6 +201,7 @@ function GeometryCalc
                     setupNumericInput(1, 'Side A'); setupNumericInput(2, 'Side B'); setupNumericInput(3, 'Angle (deg)'); 
                     latexStr = '$$ \begin{array}{c} A = \frac{1}{2} a b \sin(\theta) \\ c^2 = a^2+b^2-2ab\cos\theta \\ P = a+b+c \end{array} $$';
                 end
+            
             case 'Area Under Curve'
                 setupTextInput(1, 'f(x) (e.g. x.^2)'); 
                 setupNumericInput(2, 'Start X (a)'); 
@@ -223,8 +230,6 @@ function GeometryCalc
             case 'Prism'
                 setupNumericInput(1, 'No. Sides (n)'); setupNumericInput(2, 'Side Len (s)'); setupNumericInput(3, 'Height (h)'); 
                 latexStr = '$$ \begin{array}{c} V = B h \\ S = 2B + P h \end{array} $$';
-            otherwise
-                latexStr = '';
         end
         renderEquation(latexStr);
     end
@@ -232,31 +237,24 @@ function GeometryCalc
     function setupNumericInput(idx, label)
         inputs(idx).lbl.Text = label; inputs(idx).lbl.Visible = 'on'; 
         inputs(idx).field.Visible = 'on'; 
-        if idx == 1
-            inputs(idx).field.Value = '0'; 
-        else
-            inputs(idx).field.Value = 0;
-        end
+        if idx == 1, inputs(idx).field.Value = '0'; else, inputs(idx).field.Value = 0; end
     end
 
     function setupTextInput(idx, label)
         inputs(idx).lbl.Text = label; inputs(idx).lbl.Visible = 'on'; 
-        inputs(idx).field.Visible = 'on';
-        inputs(idx).field.Value = ''; 
+        inputs(idx).field.Visible = 'on'; inputs(idx).field.Value = ''; 
     end
 
     function calculateResult(~, ~)
         try
             lblStatus.Text = 'Calculating...';
             shape = ddShape.Value; method = ddMethod.Value;
-            
-            % SAFE INPUT EXTRACTION
-            v1_raw = inputs(1).field.Value;
 
+            v1_raw = inputs(1).field.Value; 
             v1_num = 0; funcStr = '';
             
             if strcmp(shape, 'Area Under Curve')
-                funcStr = v1_raw;
+                funcStr = v1_raw; 
             else
                 v1_num = str2double(v1_raw);
                 if isnan(v1_num), error('Input 1 must be a valid number.'); end
@@ -266,14 +264,18 @@ function GeometryCalc
             v3 = inputs(3).field.Value; 
             v4 = inputs(4).field.Value;
             
-            % Negativity check
             isCoordOrFunc = ismember(shape, {'Ellipse', 'Hyperbola', 'Parabola', 'Area Under Curve'});
             if ~isCoordOrFunc
                 if (v1_num < 0 || v2 < 0 || v3 < 0), error('Dimensions cannot be negative.'); end
             end
             
             resStr = {};
-            cla(ax); ax.NextPlot = 'add'; ax.XGrid = 'on'; ax.YGrid = 'on'; ax.DataAspectRatio = [1 1 1];
+
+            if strcmp(swHold.Value, 'Off')
+                cla(ax); 
+            end
+            
+            ax.NextPlot = 'add'; ax.XGrid = 'on'; ax.YGrid = 'on'; ax.DataAspectRatio = [1 1 1];
             ax.Interactions = []; view(ax, 2);
 
             switch shape
@@ -346,18 +348,12 @@ function GeometryCalc
                 
                 case 'Area Under Curve'
                     f = str2func(['@(x)' funcStr]); 
-                    
-                    % a) Calculate Area
                     areaVal = integral(f, v2, v3);
-                    
-                    % b) Calculate Arc Length (Numerical Derivative)
                     h_step = 1e-6; 
                     deriv = @(x) (f(x + h_step) - f(x - h_step)) ./ (2 * h_step);
                     arcLenFunc = @(x) sqrt(1 + deriv(x).^2);
                     lenVal = integral(arcLenFunc, v2, v3, 'ArrayValued', true);
-                    
                     resStr = {sprintf('Area: %.4f', areaVal), sprintf('Length: %.4f', lenVal)};
-                    
                     x_plot = linspace(v2, v3, 100); y_plot = f(x_plot);
                     x_fill = [v2, x_plot, v3]; y_fill = [0, y_plot, 0];
                     fill(ax, x_fill, y_fill, 'c', 'FaceAlpha', 0.4, 'EdgeColor', 'b');
